@@ -932,6 +932,7 @@ func (pm *ProtocolManager) BroadcastTxs(txs types.Transactions) {
 		log.Trace("Broadcast transaction", "hash", tx.Hash(), "recipients", len(peers))
 	}
 	fullRecipients := pm.decideBroadcastAggressiveness(int(totalSize), time.Second, len(txset))
+	fmt.Println("Full Recipients:", fullRecipients)
 	i := 0
 	for peer, txs := range txset {
 		SplitTransactions(txs, func(batch types.Transactions) {
