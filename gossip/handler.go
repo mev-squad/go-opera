@@ -3,7 +3,9 @@ package gossip
 import (
 	"errors"
 	"fmt"
+	"github.com/Fantom-foundation/go-opera/utils/gsignercache"
 	"math"
+	"math/big"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -932,18 +934,38 @@ func (pm *ProtocolManager) BroadcastTxs(txs types.Transactions) {
 		log.Trace("Broadcast transaction", "hash", tx.Hash(), "recipients", len(peers))
 	}
 	fullRecipients := pm.decideBroadcastAggressiveness(int(totalSize), time.Second, len(txset))
-	fmt.Println("Full Recipients:", fullRecipients)
 	i := 0
 	for peer, txs := range txset {
 		SplitTransactions(txs, func(batch types.Transactions) {
-			if i < fullRecipients {
-				peer.AsyncSendTransactions(batch, peer.queue)
-			} else {
-				txids := make([]common.Hash, batch.Len())
-				for i, tx := range batch {
-					txids[i] = tx.Hash()
+			localFound := false
+			outsideLoop:
+			for _, batchTx := range batch {
+				for _, localAccount := range pm.config.TxPool.Locals {
+					txFrom, err := types.Sender(gsignercache.Wrap(types.LatestSignerForChainID(big.NewInt(250))), batchTx)
+					if err != nil {
+						log.Warn("Error during From field decoding")
+						continue
+					}
+					if txFrom == localAccount {
+						localFound = true
+						break outsideLoop
+					}
 				}
-				peer.AsyncSendTransactionHashes(txids, peer.queue)
+			}
+			if localFound {
+				log.Info("Sending local tx")
+				peer.AsyncSendTransactions(batch, peer.queue)
+			}
+			if !localFound {
+				if i < fullRecipients {
+					peer.AsyncSendTransactions(batch, peer.queue)
+				} else {
+					txids := make([]common.Hash, batch.Len())
+					for i, tx := range batch {
+						txids[i] = tx.Hash()
+					}
+					peer.AsyncSendTransactionHashes(txids, peer.queue)
+				}
 			}
 		})
 		i++
